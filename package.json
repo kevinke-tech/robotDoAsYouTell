@@ -1,0 +1,13 @@
+{
+  "name": "vox",
+  "version": "0.1.0",
+  "description": "Self-extending voice + vision agent — Claude as planner, Claude Agent SDK as skill synthesizer",
+  "private": true,
+  "scripts": {
+    "start": "npx http-server frontend -p 8080 -c-1",
+    "dev": "npx http-server frontend -p 8080 -c-1 -o"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

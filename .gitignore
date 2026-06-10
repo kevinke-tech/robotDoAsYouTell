@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+
+# Runtime
+logs/
+*.log
+*.pid
+
+# FunASR / ModelScope cache
+.cache/
+
+# Generated skills are tracked (so you can review what the synthesizer produced),
+# but per-synthesis scratch dirs are not.
+skills/_scratch/
+skills/__pycache__/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.cursor/
+.idea/
+*.swp
