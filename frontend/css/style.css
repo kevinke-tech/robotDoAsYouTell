@@ -98,6 +98,13 @@ main {
 .msg.user  { background: #243042; margin-left: auto; }
 .msg.agent { background: var(--panel-2); }
 .msg .who  { font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.msg.ui-card { border: 1px solid #334155; }
+.ui-title { font-weight: 600; margin-bottom: 4px; }
+.ui-meta { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+.ui-audio { width: 100%; margin-bottom: 8px; }
+.ui-note { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.ui-btn { margin-top: 8px; padding: 6px 10px; font-size: 12px; }
+.ui-note a { color: #7dd3fc; }
 
 #text-input-form {
     display: flex;
@@ -228,6 +235,29 @@ button.primary.active {
     font-size: 17px;
     font-weight: 600;
     color: var(--muted);
+}
+#skills-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+#skills-delete-all {
+    padding: 4px 10px;
+    font-size: 13px;
+    line-height: 1.2;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+}
+#skills-delete-all:hover {
+    color: var(--error);
+    border-color: var(--error);
+}
+#skills-delete-all:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 #skills-refresh {
     background: transparent;

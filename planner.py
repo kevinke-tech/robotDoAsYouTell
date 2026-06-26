@@ -1,5 +1,5 @@
 """
-Planner — single Claude vision call that picks one of four tools.
+Planner — single Claude vision call that picks one tool.
 
 Inputs:
   - transcript (user's utterance after ASR)
@@ -7,7 +7,7 @@ Inputs:
   - registry_summary (list from SkillRegistry.summary_for_planner)
 
 Returns a dict like:
-  {"_tool": "chat" | "call_skill" | "synthesize_one_shot" | "synthesize_background",
+  {"_tool": "chat" | "call_skill" | "synthesize_one_shot" | "synthesize_background" | "dispatch_actions",
    "_input": <dict from the tool call>,
    "_meta": {"stop_reason": ..., "usage": {...}}}
 
@@ -24,6 +24,8 @@ import anthropic
 API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 PLANNER_MODEL = os.getenv("PLANNER_MODEL", "claude-sonnet-4-6")
+VOX_DEPLOY_REGION = os.getenv("VOX_DEPLOY_REGION", "CN").strip().upper() or "CN"
+VOX_PRIMARY_LOCALE = os.getenv("VOX_PRIMARY_LOCALE", "zh-CN")
 
 # ───── Tool definitions ───────────────────────────────────────────────────────
 
@@ -45,7 +47,21 @@ TOOLS: list[dict] = [
                         "The natural conversational reply. Spoken via TTS, so keep "
                         "it brief — 1-2 sentences, no markdown, no lists."
                     ),
-                }
+                },
+                "tts": {
+                    "type": "object",
+                    "description": (
+                        "Optional TTS overrides when user explicitly requests a speaking style. "
+                        "Supported keys: voice_type (string), speed_ratio (number), "
+                        "pitch_ratio (number), volume_ratio (number)."
+                    ),
+                    "properties": {
+                        "voice_type": {"type": "string"},
+                        "speed_ratio": {"type": "number"},
+                        "pitch_ratio": {"type": "number"},
+                        "volume_ratio": {"type": "number"},
+                    },
+                },
             },
             "required": ["speak"],
         },
@@ -103,8 +119,32 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Optional brief reply spoken before synthesis kicks off.",
                 },
+                "outcome_contract": {
+                    "type": "object",
+                    "description": (
+                        "Structured completion contract used by runtime validation. "
+                        "delivery: auto|interactive|informational. "
+                        "fulfillment_mode: auto|task_completion|address_lookup|background_ack. "
+                        "requires_ui_delivery: bool (optional). "
+                        "require_playable_media: bool (optional). "
+                        "require_visual_media: bool (optional). "
+                        "explicit_min_count: int (optional, only when user explicitly asks quantity). "
+                        "checks: list from {non_empty_output, ui_present, evidence_present, not_link_only, not_placeholder_output}. "
+                        "notes: optional short rationale."
+                    ),
+                    "properties": {
+                        "delivery": {"type": "string"},
+                        "fulfillment_mode": {"type": "string"},
+                        "requires_ui_delivery": {"type": "boolean"},
+                        "require_playable_media": {"type": "boolean"},
+                        "require_visual_media": {"type": "boolean"},
+                        "explicit_min_count": {"type": "integer"},
+                        "checks": {"type": "array", "items": {"type": "string"}},
+                        "notes": {"type": "string"},
+                    },
+                },
             },
-            "required": ["spec"],
+            "required": ["spec", "outcome_contract"],
         },
     },
     {
@@ -138,8 +178,141 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Optional brief acknowledgement spoken before setup.",
                 },
+                "outcome_contract": {
+                    "type": "object",
+                    "description": (
+                        "Structured completion contract used by runtime validation. "
+                        "delivery: auto|interactive|informational. "
+                        "fulfillment_mode: auto|task_completion|address_lookup|background_ack. "
+                        "requires_ui_delivery: bool (optional). "
+                        "require_playable_media: bool (optional). "
+                        "require_visual_media: bool (optional). "
+                        "explicit_min_count: int (optional, only when user explicitly asks quantity). "
+                        "checks: list from {non_empty_output, ui_present, evidence_present, not_link_only, not_placeholder_output}. "
+                        "notes: optional short rationale."
+                    ),
+                    "properties": {
+                        "delivery": {"type": "string"},
+                        "fulfillment_mode": {"type": "string"},
+                        "requires_ui_delivery": {"type": "boolean"},
+                        "require_playable_media": {"type": "boolean"},
+                        "require_visual_media": {"type": "boolean"},
+                        "explicit_min_count": {"type": "integer"},
+                        "checks": {"type": "array", "items": {"type": "string"}},
+                        "notes": {"type": "string"},
+                    },
+                },
             },
-            "required": ["trigger_kind", "spec"],
+            "required": ["trigger_kind", "spec", "outcome_contract"],
+        },
+    },
+    {
+        "name": "dispatch_actions",
+        "description": (
+            "Plan and return an ordered list of actions when ONE user utterance "
+            "contains MULTIPLE tasks that should all be carried out. Each action "
+            "can be one of: call_skill / synthesize_one_shot / synthesize_background / ask_user / branch."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "say_first": {
+                    "type": "string",
+                    "description": "Optional short acknowledgement spoken before the queue starts.",
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "Ordered action queue. Keep order exactly as the user intended.",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action_type": {
+                                "type": "string",
+                                "enum": [
+                                    "call_skill",
+                                    "synthesize_one_shot",
+                                    "synthesize_background",
+                                    "ask_user",
+                                    "branch",
+                                ],
+                            },
+                            "name": {"type": "string"},
+                            "args": {"type": "object"},
+                            "spec": {"type": "string"},
+                            "trigger_kind": {
+                                "type": "string",
+                                "enum": ["timer", "vision"],
+                            },
+                            "say_first": {"type": "string"},
+                            "outcome_contract": {
+                                "type": "object",
+                                "properties": {
+                                    "delivery": {"type": "string"},
+                                    "fulfillment_mode": {"type": "string"},
+                                    "requires_ui_delivery": {"type": "boolean"},
+                                    "require_playable_media": {"type": "boolean"},
+                                    "require_visual_media": {"type": "boolean"},
+                                    "explicit_min_count": {"type": "integer"},
+                                    "checks": {"type": "array", "items": {"type": "string"}},
+                                    "notes": {"type": "string"},
+                                },
+                            },
+                            "save_as": {
+                                "type": "string",
+                                "description": "Optional variable name to store this action's output for later actions.",
+                            },
+                            "slot": {
+                                "type": "string",
+                                "description": "For ask_user: slot key to save user's next reply into.",
+                            },
+                            "question": {
+                                "type": "string",
+                                "description": "For ask_user: question to ask user.",
+                            },
+                            "left": {
+                                "description": "For branch: left operand, often {{vars.xxx}} or {{slots.xxx}}.",
+                            },
+                            "source": {
+                                "type": "string",
+                                "description": "For branch: fallback context path such as vars.weather.status.",
+                            },
+                            "op": {
+                                "type": "string",
+                                "enum": ["truthy", "eq", "ne", "in", "contains"],
+                            },
+                            "value": {
+                                "description": "For branch: right operand for comparison.",
+                            },
+                            "then_actions": {
+                                "type": "array",
+                                "description": "For branch: actions when condition matches.",
+                                "items": {"type": "object"},
+                            },
+                            "else_actions": {
+                                "type": "array",
+                                "description": "For branch: actions when condition does not match.",
+                                "items": {"type": "object"},
+                            },
+                            "on_error": {
+                                "type": "string",
+                                "enum": ["continue", "stop"],
+                            },
+                        },
+                        "required": ["action_type"],
+                    },
+                },
+                "on_error": {
+                    "type": "string",
+                    "enum": ["continue", "stop"],
+                    "description": (
+                        "Queue-level fallback on first failure. "
+                        "'continue' keeps executing later actions; "
+                        "'stop' aborts the queue."
+                    ),
+                },
+            },
+            "required": ["actions"],
         },
     },
 ]
@@ -147,31 +320,125 @@ TOOLS: list[dict] = [
 
 SYSTEM_TEMPLATE = """You are vox, a voice + vision assistant. The user speaks to you through their laptop microphone. You can see them and their environment through the laptop camera — a fresh frame is attached to each request when the camera is on.
 
-Your job: decide what to do with each utterance, by calling exactly one of four tools.
+Your job: decide what to do with each utterance, by calling exactly one tool.
 
 EXISTING SKILLS (registry):
 {registry_summary}
 
+RUNTIME INTERACTION ASSUMPTIONS (STRICT):
+- The user is in front of a computer that has speaker, camera, and screen.
+- The user interacts with vox through a browser-based frontend.
+- Default expectation: the task should be completed directly by vox in this conversation/UI without requiring extra manual operations on OS/browser/sites.
+- Therefore, avoid guidance like "please click/open/select/operate in browser/computer" unless the user explicitly asks for manual control UX.
+
+DEPLOYMENT CONTEXT (STRICT):
+- Deploy region: {deploy_region}
+- Primary user locale: {primary_locale}
+- For external retrieval, prefer sources/endpoints that are reachable and stable in the deploy region.
+- Avoid single-source dependency for factual/location/network tasks; plan with multi-source fallback.
+- If one source is blocked/timeout/cert-failed/geo-failed, switch to alternate source path instead of ending early.
+
+VOX SYSTEM MODEL (UNDERSTAND BEFORE PLANNING):
+- vox is an execution system, not just a chatbot:
+  - planner decides actions
+  - server executes actions
+  - synthesizer writes runnable skills
+  - runtime executes skills
+  - frontend renders ui cards + plays tts
+- `synthesize_one_shot` means:
+  - create a new runnable one-shot skill file
+  - server immediately executes it once
+  - runtime validates whether result actually fulfills intent
+  - failed/placeholder/link-only outputs may trigger automatic repair synthesis
+- `synthesize_background` means:
+  - create a new background-capable skill
+  - server immediately activates it
+  - background behavior should be explicit (what to watch/when to trigger/what to do on trigger)
+- Existing skills are real deployable units in registry, not examples.
+- Planning quality is judged by whether the user gets usable final outcome in current session:
+  - speak content
+  - render content
+  - actionable ui (when task is interactive)
+  - evidence fields when information claims are made
+
+DELIVERY THINKING MODEL:
+- Plan from "user expected end state" backward.
+- Your action choice should minimize semantic gap between user intent and final delivered experience.
+- For interaction-heavy intents, think in terms of "result objects shown in UI" instead of "instructions for manual browser operation".
+- When choosing between alternatives, prefer the one with clearer completion signal (user can directly see/hear/use the result).
+
 DECISION RULES (in priority order):
 
-1. **Prefer call_skill whenever a registered skill matches.** Pay special attention to the GENERIC skills below — they cover most timer / watcher / lifecycle requests, so reach for synthesize_background only when nothing in the registry fits.
+1. **Dynamic creation first unless a clearly matching registered skill already exists.**
+   - Use `call_skill` ONLY when the exact skill is present in the registry list above and clearly matches intent.
+   - If the candidate skill name is not present in registry, NEVER call it; synthesize instead.
+   - Prefer dynamic creation for new capabilities instead of assuming generic built-ins exist.
 
-   Common routings:
-   - "remind me in N seconds/minutes/hours to X" → call_skill(generic_timer, {{delay_seconds: ..., message: "X"}})
-   - "in 5 minutes tell me to Y" → call_skill(generic_timer, ...)
-   - "tell me when you see X" / "let me know if Y happens" / "watch for Z" → call_skill(generic_vision_watcher, {{trigger: "X precise", say_on_match: "..."}})
-   - "what are you watching for" / "what reminders are active" / "list active" → call_skill(list_active, {{}})
-   - "stop the pen watcher" / "cancel that reminder" / "forget about it" → call_skill(stop_active, {{identifier: "..."}})
-   - "what time is it" / "现在几点" → call_skill(current_time, {{}})
-   - "open <site>" / "go to <url>" / "navigate to X" / "open hacker news" → call_skill(open_url, {{url: "..."}}). For named sites, supply the obvious URL: hacker news → news.ycombinator.com, reddit → reddit.com, etc. If the user wants to "see" the page, add screenshot: true.
+2. If the user's request is a SINGLE discrete action and no existing registry skill clearly covers it → `synthesize_one_shot`.
 
-2. If the user's request is a SINGLE discrete action and nothing in the registry covers it → synthesize_one_shot.
+3. If the user wants something ONGOING (watch, remind, monitor, periodic checks, scene triggers) and no existing registry skill clearly covers it → `synthesize_background` (trigger_kind=timer or vision).
 
-3. If the user wants something ONGOING that the generic_timer / generic_vision_watcher cannot express (e.g., "every 5 minutes summarize my screen", "every hour at the top of the hour", complex compound conditions) → synthesize_background (trigger_kind=timer or vision).
+4. If the user asks for MULTIPLE actions in one utterance (e.g., "do A, then B, and also C"), use dispatch_actions and return an ordered queue of all actions. Do not drop any requested action.
+   - For action_type=call_skill: include name + args; use save_as if later actions need its output.
+   - For action_type=synthesize_one_shot: include spec + outcome_contract; use save_as if later actions need its output.
+   - For action_type=synthesize_background: include trigger_kind + spec + outcome_contract.
+   - For action_type=ask_user: include slot + question when required input is missing.
+   - For action_type=branch: include condition (left/source + op + value) and then_actions/else_actions.
+   - For errors, default to queue on_error=continue unless the user clearly asks to stop on first failure.
+   - Keep each action minimal and executable; preserve user order.
 
-4. Otherwise (questions, observations, small talk, "what do you see") → chat.
+MISSING INPUT SAFETY (STRICT):
+- If required input is missing, ask the user first via action_type=ask_user.
+- Store the user reply into a slot and reference the slot in subsequent actions.
+- Never fabricate missing parameters from unrelated context.
 
-When synthesizing a skill that needs to drive a website (filling forms, scraping a page, searching, booking, posting), include in the spec: "Use `async with runtime.new_page() as page:` to drive a persistent Chromium browser (Playwright). The page is fresh; navigate via `await page.goto(url)`." This tells the synthesizer to write a browser-driven skill.
+FACTUAL EVIDENCE RULE (STRICT):
+- Never present unverified conclusions before obtaining real data.
+- For claims derived from retrieval/query/external tools, include source/evidence in outputs.
+- If downstream actions depend on a factual result, run the fact-gathering step first and save_as its output.
+
+INTENT PRESERVATION RULE (STRICT):
+- Preserve the user's explicit request semantics and constraints.
+- Do not inject new objectives, hidden assumptions, or unrelated rewrites.
+- Do not downgrade fulfillment into tutorial/instructional responses when the user asked for direct completion.
+- Do NOT invent quantitative constraints (counts/minimum numbers like "at least 6 images") unless the user explicitly asks for a number.
+
+GENERATIVE UI RULE (STRICT):
+- For interactive result tasks, prefer generated ephemeral UI outputs over raw link dumps.
+- Avoid planning visible-browser manual-click workflows unless the user explicitly asks for that UX.
+- Specs should request evidence-bearing outputs (source/source_url/key fields) in render.
+
+DIRECT FULFILLMENT RULE (STRICT):
+- Prefer plans that directly produce the end result in chat/UI/audio.
+- "Return a link and ask user to handle it" is considered incomplete unless user explicitly requests links-only behavior.
+- "Open a page and ask user to continue manually" is considered incomplete unless user explicitly requests manual browsing.
+
+REAL-TIME / FACTUAL QUERY RULE (STRICT):
+- For requests requiring current/real-time/factual data (time/date/weather/price/news/status), do not answer from memory-style chat.
+- Prefer calling an existing skill that can retrieve/produce verifiable data.
+- If no matching skill exists, synthesize one-shot and require evidence-bearing output.
+
+OUTCOME CONTRACT RULE (STRICT):
+- Every synthesize_* call MUST include outcome_contract.
+- outcome_contract.delivery: auto | interactive | informational.
+- outcome_contract.fulfillment_mode: auto | task_completion | address_lookup | background_ack.
+- optional outcome_contract.requires_ui_delivery: true when user expects visible UI result.
+- optional outcome_contract.require_playable_media: true for "play/watch/listen" intents.
+- optional outcome_contract.require_visual_media: true for "show image/photo/picture" intents.
+- optional outcome_contract.explicit_min_count: ONLY when user explicitly asked a count.
+- outcome_contract.checks uses only:
+  - non_empty_output
+  - ui_present
+  - evidence_present
+  - not_link_only
+  - not_placeholder_output
+- If the user explicitly asks for a URL/link/address, set fulfillment_mode=address_lookup (link-only may be valid).
+- For execution/consumption intents (play/watch/do/run), set fulfillment_mode=task_completion and include ui_present + not_link_only.
+- For background acknowledgement, set fulfillment_mode=background_ack.
+
+5. Otherwise (questions, observations, small talk, "what do you see") → chat.
+
+When synthesizing a skill that needs website interaction (forms/scraping/search), prefer hidden/headless retrieval and generated UI outputs. Use visible browser-driving only when the task explicitly requires interactive page manipulation.
 
 For trigger / say_on_match strings: be specific. "raises a hand" is too vague — write "a person raises their hand visibly to or above shoulder/head level" so the per-frame trigger checker can decide reliably.
 
@@ -183,6 +450,8 @@ STYLE:
 - Spoken replies are processed by TTS, so keep them brief (1-2 short sentences). No markdown, no lists.
 - Match the user's language (English in / English out, Chinese in / Chinese out).
 - Acknowledge what you see in the camera when it's relevant to the user's request, but don't narrate it unprompted.
+- If the user explicitly asks for a voice style/tempo/tone, include `chat.tts` overrides.
+- Do not invent TTS style overrides unless the user explicitly asks.
 """
 
 
@@ -199,7 +468,11 @@ def _registry_summary_text(registry_summary: list[dict]) -> str:
 
 
 def _build_system_prompt(registry_summary: list[dict]) -> str:
-    return SYSTEM_TEMPLATE.format(registry_summary=_registry_summary_text(registry_summary))
+    return SYSTEM_TEMPLATE.format(
+        registry_summary=_registry_summary_text(registry_summary),
+        deploy_region=VOX_DEPLOY_REGION,
+        primary_locale=VOX_PRIMARY_LOCALE,
+    )
 
 
 def _build_user_content(transcript: str, image_b64: Optional[str]) -> list[dict]:

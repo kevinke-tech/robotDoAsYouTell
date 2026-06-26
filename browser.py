@@ -5,8 +5,8 @@ Lazy-launched on first use, shared across all skill invocations. One Chromium
 process, one shared BrowserContext (shared cookie jar / viewport), per-skill
 pages that close on context-manager exit.
 
-Headed by default (so demos are visible). Falls back to headless on launch
-failure (typical on WSL2 without WSLg). Force headless via env BROWSER_HEADLESS=true.
+Headless by default (non-intrusive background operation). Set
+BROWSER_HEADLESS=false to force visible browser windows for debugging.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "false").lower() in ("1", "true", "yes")
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() in ("1", "true", "yes")
 BROWSER_VIEWPORT = {"width": 1280, "height": 800}
 BROWSER_NEW_PAGE_TIMEOUT_MS = 30_000
 

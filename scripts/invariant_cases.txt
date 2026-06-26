@@ -1,0 +1,8 @@
+# Domain-agnostic invariant smoke cases
+# One transcript per line. Lines starting with # are ignored.
+
+现在几点了？
+请告诉我今天是星期几
+帮我总结一下我刚才说的话
+看到我打电话就说上班不要打电话
+

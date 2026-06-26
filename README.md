@@ -91,6 +91,43 @@ Open `http://localhost:8080`. The page asks for mic + camera permission. Click "
 
 You can also type into the input box — it goes through the same `/plan` path.
 
+## Quality Gates (Invariant-Based)
+
+Vox now uses fixed platform invariants instead of case-by-case feature rules.
+
+Run invariant checks:
+
+```bash
+python scripts/e2e_invariants.py --port 5001
+```
+
+Run unified quality gate (recommended before merge/release):
+
+```bash
+python scripts/quality_gate.py --port 5001
+```
+
+Run high-volume invariant stress (same fixed gates, more perturbed inputs):
+
+```bash
+python scripts/quality_gate.py --port 5001 --mass-eval --mass-eval-count 200
+```
+
+By default, mass eval uses `scripts/mass_eval_seeds.txt` (lightweight seeds)
+and writes failures to `logs/mass_eval_failures.json`.
+
+Run random-10 self-healing evaluation (intent randomization + auto reinforcement):
+
+```bash
+python scripts/random10_self_heal.py --host 127.0.0.1 --port 5001 --count 10 --run-gate-after-heal
+```
+
+Feed your own large transcript set (e.g. 10k cases) without adding new rules:
+
+```bash
+python scripts/e2e_invariants.py --port 5001 --transcript-file scripts/invariant_cases.txt
+```
+
 ## What's wired today (phase 6)
 
 - ✅ Mic + camera capture, VAD, ASR, TTS — vui-derived voice stack

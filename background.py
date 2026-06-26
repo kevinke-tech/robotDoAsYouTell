@@ -82,6 +82,7 @@ class BackgroundRunner:
         elif kind == "vision":
             base["trigger"] = info.get("trigger", "")
             base["say_on_match"] = info.get("say_on_match", "")
+            base["ui_on_match"] = info.get("ui_on_match")
             base["cooldown_sec"] = info.get("cooldown_sec", 30.0)
             base["rate_hz"] = info.get("rate_hz", 1.0)
         return base
@@ -189,6 +190,7 @@ class BackgroundRunner:
                     id_=id_,
                     trigger=inst.get("trigger", ""),
                     say_on_match=inst.get("say_on_match", ""),
+                    ui_on_match=inst.get("ui_on_match") if isinstance(inst.get("ui_on_match"), dict) else None,
                     cooldown_sec=float(inst.get("cooldown_sec") or 30.0),
                     rate_hz=float(inst.get("rate_hz") or 1.0),
                     label=inst.get("label"),
@@ -412,6 +414,7 @@ class BackgroundRunner:
         id_: str,
         trigger: str,
         say_on_match: str,
+        ui_on_match: Optional[dict],
         cooldown_sec: float,
         rate_hz: float,
         label: Optional[str],
@@ -423,6 +426,7 @@ class BackgroundRunner:
             "kind": "vision",
             "trigger": trigger,
             "say_on_match": say_on_match,
+            "ui_on_match": dict(ui_on_match) if isinstance(ui_on_match, dict) else None,
             "cooldown_sec": float(cooldown_sec),
             "rate_hz": float(rate_hz),
             "label": label or (trigger[:48] if trigger else "(watch)"),
@@ -443,6 +447,7 @@ class BackgroundRunner:
         self,
         trigger: str,
         say_on_match: str,
+        ui_on_match: Optional[dict] = None,
         cooldown_sec: float = 30.0,
         rate_hz: float = 1.0,
         label: Optional[str] = None,
@@ -453,6 +458,7 @@ class BackgroundRunner:
             id_=id_,
             trigger=trigger,
             say_on_match=say_on_match,
+            ui_on_match=ui_on_match if isinstance(ui_on_match, dict) else None,
             cooldown_sec=cooldown_sec,
             rate_hz=rate_hz,
             label=label,
@@ -517,18 +523,21 @@ class BackgroundRunner:
             if is_match:
                 info["match_count"] += 1
                 info["last_fire_t"] = now
-                await self._fire(id_, info["say_on_match"])
+                await self._fire(id_, info.get("say_on_match", ""), info.get("ui_on_match"))
 
     # ───── fire / broadcast ─────
 
-    async def _fire(self, id_: str, text: str) -> None:
+    async def _fire(self, id_: str, text: str, ui: Optional[dict] = None) -> None:
         print(f"[bg] FIRE {id_}: {text!r}", flush=True)
-        await self._output_send({
-            "type": "speak",
+        msg = {
+            "type": "watcher_fire",
             "text": text,
             "from": id_,
             "collide": "tone_interrupt",
-        })
+        }
+        if isinstance(ui, dict):
+            msg["ui"] = ui
+        await self._output_send(msg)
 
     async def _maybe_announce_frames_change(self) -> None:
         """Broadcast frames_required state if the vision-watcher count changed.

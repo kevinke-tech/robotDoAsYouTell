@@ -12,6 +12,7 @@ The registry scans skills/ at startup, indexes each, and exposes:
 """
 
 import asyncio
+import ast
 import importlib.util
 import inspect
 import sys
@@ -20,8 +21,58 @@ from typing import Any
 
 import runtime
 
+ROOT_DIR = Path(__file__).parent
 SKILLS_DIR = Path(__file__).parent / "skills"
 SKILL_RUN_TIMEOUT_SEC = 30.0
+
+
+def _is_skill_like_root_file(path: Path) -> bool:
+    """
+    Detect probable skill files placed in project root by mistake.
+    Uses AST only (no execution) to avoid side effects.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+    except Exception:
+        return False
+
+    has_run_spec = False
+    has_watch_spec = False
+    has_run_fn = False
+    has_on_match_fn = False
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    if target.id == "RUN_SPEC":
+                        has_run_spec = True
+                    if target.id == "WATCH_SPEC":
+                        has_watch_spec = True
+        elif isinstance(node, ast.AsyncFunctionDef):
+            if node.name == "run":
+                has_run_fn = True
+            if node.name == "on_match":
+                has_on_match_fn = True
+
+    return (has_run_spec and has_run_fn) or (has_watch_spec and has_on_match_fn)
+
+
+def _warn_legacy_root_skill_files() -> None:
+    suspects: list[str] = []
+    for f in sorted(ROOT_DIR.glob("*.py")):
+        if f.name in ("dispatcher.py",):
+            continue
+        if _is_skill_like_root_file(f):
+            suspects.append(f.name)
+    if suspects:
+        joined = ", ".join(suspects)
+        print(
+            "[registry] warning: skill-like python files found in project root "
+            f"(not auto-loaded): {joined}. Move them into skills/ or archive/legacy_examples/.",
+            flush=True,
+        )
 
 
 class SkillRegistry:
@@ -30,6 +81,7 @@ class SkillRegistry:
 
     def load_all(self) -> dict[str, dict]:
         self.skills = {}
+        _warn_legacy_root_skill_files()
         if not SKILLS_DIR.exists():
             return self.skills
 

@@ -1,0 +1,22 @@
+[
+  {
+    "name": "weather_huadu",
+    "transcript": "查一下今天天气，地点是广州市花都区",
+    "expect": {
+      "require_ui": true,
+      "allowed_ui_types": ["info_card", "key_value", "html_card", "card_grid"],
+      "timeout_ms": 180000
+    }
+  },
+  {
+    "name": "women_gallery_real_images",
+    "transcript": "我想看美女图片",
+    "expect": {
+      "require_ui": true,
+      "allowed_ui_types": ["image_card", "card_grid", "html_card"],
+      "min_loaded_images": 1,
+      "timeout_ms": 180000
+    }
+  }
+]
+

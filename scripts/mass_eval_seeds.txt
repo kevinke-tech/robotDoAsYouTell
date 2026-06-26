@@ -1,0 +1,34 @@
+# Lightweight, domain-agnostic seed transcripts for high-volume invariant stress.
+# Keep these mostly non-synthesis to avoid false negatives from long dynamic build latency.
+
+现在几点了？
+请告诉我今天是星期几
+帮我总结一下我刚才说的话
+google 的网址是什么？
+你是谁？
+你现在在做什么？
+我想知道今天日期
+请用一句话回答你能做什么
+能不能简短回答我刚才的问题
+请重复我这句话：测试
+
+
+来个运动视频
+
+给我看一张咖啡图片
+
+给我看一张城市夜景图片
+
+给我看今天体育头条相关的头条新闻，做要点摘要
+
+查一下深圳某个地铁站附近的早餐店，推荐3个并说明理由
+
+给我来一个专注的可播放音频
+
+我准备周末去广州，请先给我一个半天游玩+餐饮安排建议
+
+查一下“区块链”的百科，给我一个简明总结并附上来源
+
+帮我查下周从北京到重庆的机票和酒店大致信息，给我建议
+
+给我来一个健身主题的可播放视频

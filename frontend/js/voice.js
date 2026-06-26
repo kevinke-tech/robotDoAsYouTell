@@ -4,7 +4,7 @@
  * Exposes window.Voice with:
  *   start() / stop() / toggle()        — control mic capture
  *   onSpeechEnd(handler)               — register async (wavBlob) => void callback
- *   speak(text)                        — POST /tts and play, with barge-in
+ *   speak(text, ttsOptions?)           — POST /tts and play, with barge-in
  *   stopTTS()                          — stop current TTS playback
  *   isActive() / isSpeaking() / isTTSPlaying()
  *   setBackend(url)                    — override default ("http://localhost:5001")
@@ -114,17 +114,32 @@
         ttsPlaying = false;
     }
 
-    async function speak(text) {
+    function normalizeTTSOptions(ttsOptions) {
+        if (!ttsOptions || typeof ttsOptions !== "object") return {};
+        const out = {};
+        if (typeof ttsOptions.voice_type === "string" && ttsOptions.voice_type.trim()) {
+            out.voice_type = ttsOptions.voice_type.trim();
+        }
+        for (const k of ["speed_ratio", "pitch_ratio", "volume_ratio"]) {
+            if (ttsOptions[k] === undefined || ttsOptions[k] === null) continue;
+            const n = Number(ttsOptions[k]);
+            if (!Number.isNaN(n)) out[k] = n;
+        }
+        return out;
+    }
+
+    async function speak(text, ttsOptions) {
         if (!text) return;
         stopTTS();
         ttsPlaying = true;
         setStatus("speaking", text);
 
         try {
+            const tts = normalizeTTSOptions(ttsOptions);
             const resp = await fetch(BACKEND + "/tts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text }),
+                body: JSON.stringify({ text, ...tts }),
             });
             const ctype = resp.headers.get("content-type") || "";
             if (!resp.ok || !ctype.includes("audio")) {
